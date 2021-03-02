@@ -31,6 +31,7 @@ export class MsWorkspaceManager extends MsManager {
     private _state: MsWorkspaceManagerState;
     windowTracker: any;
     msWorkspaceList: MsWorkspace[];
+    lastActiveMsWorkspaceIndex: number;
     settings: Gio.Settings;
     metaWindowFocused: Meta.Window | null;
     numOfMonitors: number;
@@ -52,6 +53,7 @@ export class MsWorkspaceManager extends MsManager {
         );
         this.windowTracker = Shell.WindowTracker.get_default();
         this.msWorkspaceList = [];
+        this.lastActiveMsWorkspaceIndex = 0;
         this.settings = getSettings('tweaks');
         this.metaWindowFocused = null;
         this.numOfMonitors = global.display.get_n_monitors();
@@ -582,15 +584,23 @@ export class MsWorkspaceManager extends MsManager {
     }
 
     getActiveMsWorkspace(): MsWorkspace {
-        const currentMonitorIndex = global.display.get_current_monitor();
-        const activeWorkspaceIndex = this.workspaceManager.get_active_workspace_index();
+        const metaWindow = global.display.get_focus_window();
+        let msWorkspace;
+        // As the appLauncher doesn't show up in get_focus_window(), we'll
+        // keep track of the last active workspace, and use that if we can't
+        // find any with focus.
+        if (metaWindow) {
+            msWorkspace = this.getMsWorkspaceOfMetaWindow(metaWindow);
+            this.lastActiveMsWorkspaceIndex = this.msWorkspaceList.indexOf(msWorkspace)
+        } else {
+            // Guard against referencing a deleted workspace.
+            if (this.lastActiveMsWorkspaceIndex > this.msWorkspaceList.length) {
+                this.lastActiveMsWorkspaceIndex = 0;
+            }
 
-        const msWorkspace =
-            currentMonitorIndex === Main.layoutManager.primaryIndex
-                ? this.primaryMsWorkspaces[activeWorkspaceIndex]
-                : Me.msWorkspaceManager.getMsWorkspacesOfMonitorIndex(
-                      currentMonitorIndex
-                  )[0];
+            msWorkspace = this.msWorkspaceList[this.lastActiveMsWorkspaceIndex];
+        }
+
         return msWorkspace;
     }
 
@@ -773,23 +783,7 @@ export class MsWorkspaceManager extends MsManager {
 
     focusMsWorkspace(msWorkspace: MsWorkspace) {
         if (!msWorkspace) return;
-        const backend = Clutter.get_default_backend();
-        const seat = backend.get_default_seat();
-        const [
-            containerX,
-            containerY,
-        ] = msWorkspace.msWorkspaceActor.tileableContainer.get_transformed_position();
-        seat.warp_pointer(
-            containerX +
-                Math.floor(
-                    msWorkspace.msWorkspaceActor.tileableContainer.width / 2
-                ),
-            containerY +
-                Math.floor(
-                    msWorkspace.msWorkspaceActor.tileableContainer.height / 2
-                )
-        );
-
-        msWorkspace.refreshFocus();
+        msWorkspace.activate();
+        msWorkspace.refreshFocus(true);
     }
 }
